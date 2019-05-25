@@ -1,0 +1,174 @@
+---
+title: "Practical Machine Learning. Course Project"
+
+author: "Ekaterina Soboleva"
+
+date: "May 25, 2019"
+
+output:
+
+html_document: yes
+
+fig_caption: yes
+
+keep_md: yes
+
+self_contained: no
+---
+
+```{r global_options, include=FALSE}
+library(knitr)
+opts_knit$set(progress = FALSE, verbose = TRUE, fig.path='figure/')
+library(caret)
+library(rattle)
+```
+
+## Introduction
+This project is done as a Course Project of a Coursera course "[Practical Machine Learning](https://www.coursera.org/learn/practical-machine-learning/home/welcome)", a part of "Data Science" specialization.
+
+The data for the project is provided by **Human Activity Recognition** project ([https://duckduckgo.com](https://duckduckgo.com)) that collects a large amount of data about personal activity. In this case, I will analyze data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of this project is to predict the manner in which the participants did the exercise, i.e., Class A to E.
+
+For complete the project we are provided with training and test data. The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+## Loading and Preprocessing the Data
+First, I load the data and take a look at them.  
+```{r loaddata, cache=TRUE}
+dataURL_train <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+dataURL_test <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+if(!file.exists("pml-training.csv")){
+    download.file(dataURL_train, destfile = "pml-training.csv", method="curl")
+    }
+if(!file.exists("pml-testing.csv")){
+    download.file(dataURL_test, destfile = "pml-testing.csv", method="curl")
+    }    
+train_data <- read.csv("pml-training.csv")
+test_data <- read.csv("pml-testing.csv")
+```
+
+```{r exploratory, cache=TRUE}
+dim(train_data)
+dim(test_data)
+str(train_data)
+```
+We have data sets of 160 variables. The training set has 19 622 observations and the test set has 20. The information obtained by the **str()** function demonstrates the following features:
+
+- some columns have a lot of NA values;
+- first 7 columns probably contain information about the observation (what person did the exercise, when and how the information was collected).
+
+I think it is necessary to clean the data to get a better prediction result. Here I do the following steps of cleaning:
+
+- remove first 7 columns that contain data not useful for the analysis;
+- remove the columns having only NA values;
+- remove columns with near zero variance".
+
+```{r cleaning, cache=TRUE}
+train_data <- train_data[,-c(1:7)]
+train_data <- train_data[, colSums(is.na(train_data)) == 0] 
+train_NZ <- nearZeroVar(train_data)
+train_data <- train_data[, -train_NZ]
+dim(train_data)
+```
+Now we have the train data set of only 53 variables. I suppose that there is no need in types transformations (the variables are of "num", "int" and "factor" types) and in correlation analysis (for this I rely on methods than will be used for model training). 
+
+## Data Partition and Analysis Plan
+Here I divide the train data in two sub-sets - a sub-training (70%) and sub-test (30%) sata sets. 
+```{r partition, cache=TRUE}
+set.seed(12345)
+in_train <- createDataPartition(train_data$classe, p=0.7, list=FALSE)
+train1 <- train_data[in_train,]
+test1 <- train_data[-in_train,]
+cbind(c("training", "testing"), rbind(dim(train1), dim(test1)))
+```
+
+I will try to apply three modeling methods and compare their characteristics to choose the best for the prediction:
+
+- Classification Trees
+- Random Forests
+- Gradient Boosting Method
+
+I shall use crossvalidation for reduce the effect of overfitting and improve the efficiency of the models. I've chosen a 5-folds cross validation method.
+
+## Prediction with Classification Trees
+Here I build a tree model with 5-folds cross validation and then estimate it's in-sample and out-sample errors and accuracy.
+```{r trees, cache=TRUE}
+tr_control <- trainControl(method="cv", number = 5)
+model_tree <- train(classe ~ ., data = train1, method = "rpart", trControl = tr_control)
+fancyRpartPlot(model_tree$finalModel)
+
+pred_train <- predict(model_tree, newdata = train1)
+confMatrix_train <- confusionMatrix(train1$classe, pred_train)
+confMatrix_train$table
+confMatrix_train$overall[1]
+
+pred_test <- predict(model_tree, newdata = test1)
+confMatrix_test <- confusionMatrix(test1$classe, pred_test)
+confMatrix_test$table
+confMatrix_test$overall[1]
+```
+We can see from these results that the quality of the model is very poor:
+
+- the both in-sample and out-sample errors are significant;
+- the model accuracy is about 0.5 for both training and test data.
+
+The model characteristics obtained definitively say that this model would be not useful for further predictions.
+
+## Prediction with Random Forests
+Now I'll build a Random Forests model with 5-folds cross validation and look at its in-sample and out-sample errors and accuracy.
+``` {r forests, cache=TRUE}
+tr_control <- trainControl(method="cv", number = 5)
+model_forest <- train(classe ~ ., data = train1, method="rf", trControl = tr_control)
+model_forest$finalModel
+
+pred_train <- predict(model_forest, newdata = train1)
+confMatrix_train <- confusionMatrix(train1$classe, pred_train)
+confMatrix_train$table
+confMatrix_train$overall[1]
+
+pred_test <- predict(model_forest, newdata = test1)
+confMatrix_test <- confusionMatrix(test1$classe, pred_test)
+confMatrix_test$table
+confMatrix_test$overall[1]
+```
+This model seems to be very good - with accuracy 1 on the training data and 0.99 on the test data. It's inspiring!
+
+## Prediction with Gradient Boosting Method
+Here I'll try one more model and look at its characteristics.
+```{r boosted, cache=TRUE}
+tr_control <- trainControl(method="cv", number = 5)
+model_boost <- train(classe ~ ., data = train1, method = "gbm",
+               trControl = tr_control, verbose = FALSE)
+model_boost$finalModel
+
+pred_train <- predict(model_boost, newdata = train1)
+confMatrix_train <- confusionMatrix(train1$classe, pred_train)
+confMatrix_train$table
+confMatrix_train$overall[1]
+
+pred_test <- predict(model_boost, newdata = test1)
+confMatrix_test <- confusionMatrix(test1$classe, pred_test)
+confMatrix_test$table
+confMatrix_test$overall[1]
+
+```
+This model is also very good with the accuracy of 0.97 on training data and 0.96 on test data. 
+
+## Prediction on Test Data.
+Here I try to do a prediction on test data by two models obtained by **random forests** and **gradient boosting** methods and compare the results.
+```{r testdata, cache = TRUE }
+predict(model_forest, newdata = test_data)
+predict(model_boost, newdata = test_data)
+```
+The results obtained are equal that gives me a hope that my prediction of Classes for the test data will be precise!
+
+## Conclusion
+In this project, I applied tree modeling technics and compares their prediction quality in this particular case. 
+
+The **Classification Tree** appeared to be poor in this case. It is expected because the data set had many variables, much of them highly correlated.
+The **Gradient Boosting Regression** got a very good result, and the best result was got by the **Random Forests** method.
